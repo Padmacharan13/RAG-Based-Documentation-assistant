@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 
 class TokenChunker:
     """
-    Chunks text page-by-page using the tokenizer of the target embedding model.
+            Chunks text page-by-page using the tokenizer of the target embedding model.
     This ensures chunks are measured in actual tokens and fits within the model's structure.
     """
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", chunk_size: int = 400, overlap: int = 50):
