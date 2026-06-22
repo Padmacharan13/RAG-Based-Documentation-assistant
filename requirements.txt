@@ -1,0 +1,5 @@
+pypdf>=4.0.0
+sentence-transformers>=2.5.0
+faiss-cpu>=1.8.0
+reportlab>=4.1.0
+numpy>=1.22.4,<2.0.0
