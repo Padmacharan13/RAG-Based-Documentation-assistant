@@ -66,7 +66,14 @@ class GroqGenerator:
             temperature=0.0,  # Zero temperature for factual/deterministic responses
         )
         
-        return chat_completion.choices[0].message.content.strip()
+        prompt_tokens = 0
+        completion_tokens = 0
+        if hasattr(chat_completion, "usage") and chat_completion.usage:
+            prompt_tokens = getattr(chat_completion.usage, "prompt_tokens", 0)
+            completion_tokens = getattr(chat_completion.usage, "completion_tokens", 0)
+            
+        return chat_completion.choices[0].message.content.strip(), prompt_tokens, completion_tokens
+
 
     def parse_citations(self, response_text: str, retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
