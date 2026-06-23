@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+# Load environment variables from .env if present
+load_dotenv()
+
 import os
 import shutil
 import sqlite3
@@ -5,7 +9,6 @@ from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 
 from src.embedder import DocumentEmbedder
 from src.vector_store import FAISSVectorStore
@@ -25,9 +28,6 @@ from src.database import (
 )
 from src.auth import hash_password, verify_password, create_access_token, decode_access_token
 from fastapi.middleware.cors import CORSMiddleware
-
-# Load environment variables from .env if present
-load_dotenv()
 
 app = FastAPI(
     title="RAG-Based Documentation Assistant API",

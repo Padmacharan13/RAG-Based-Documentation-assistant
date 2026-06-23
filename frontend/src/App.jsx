@@ -30,7 +30,7 @@ export default function App() {
     setAuthed(false);
     setUsername('');
     setView('dashboard');
-    addToast('Logged out successfully 👋', 'info');
+    addToast('Logged out successfully.', 'info');
   }
 
   function handleNavigate(newView) {

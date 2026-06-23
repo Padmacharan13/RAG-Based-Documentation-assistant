@@ -48,7 +48,7 @@ export default function ChatPage({ addToast }) {
       const errMsg = {
         id: Date.now() + 1,
         type: 'bot',
-        text: `Oops! Something went wrong: ${err.message}`,
+        text: `Error processing query: ${err.message}`,
         citations: [],
         time: new Date(),
         isError: true,
@@ -83,10 +83,14 @@ export default function ChatPage({ addToast }) {
     <div className="chat-view">
       {/* Header */}
       <div className="chat-header">
-        <div className="chat-header-icon">🤖</div>
+        <div className="chat-header-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
         <div className="chat-header-info">
           <h2>RAG Assistant</h2>
-          <span><span className="online-dot" /> Online &amp; ready to help</span>
+          <span><span className="online-dot" /> Connected to Private Vector Index</span>
         </div>
       </div>
 
@@ -94,12 +98,14 @@ export default function ChatPage({ addToast }) {
       <div className="chat-messages">
         {messages.length === 0 && !loading && (
           <div className="chat-welcome">
-            <div className="chat-welcome-emoji">🧠</div>
+            <svg xmlns="http://www.w3.org/2000/svg" className="chat-welcome-emoji" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" style={{ width: 44, height: 44, margin: '0 auto 16px', color: 'var(--accent-primary)' }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21l8.982-1.569M21 12h-9m0 0V3m0 9v9M3 12h9m0 0V3M12 3a9 9 0 019 9v0a9 9 0 01-9 9v0a9 9 0 01-9-9v0a9 9 0 019-9z" />
+            </svg>
             <h2>
               <span className="neon-text">Ask me anything</span>
             </h2>
             <p>
-              I'll search through your uploaded documents and give you answers with sources. No cap. 🔥
+              Ask any questions. I'll search through your indexed documents and synthesize an answer citing sources.
             </p>
             <div className="suggestion-chips">
               {suggestions.map((s, i) => (
@@ -118,7 +124,7 @@ export default function ChatPage({ addToast }) {
         {messages.map((msg) => (
           <div key={msg.id} className={`message ${msg.type}`}>
             <div className="message-avatar">
-              {msg.type === 'bot' ? '🤖' : '🧑'}
+              {msg.type === 'bot' ? 'AI' : 'U'}
             </div>
             <div>
               <div
@@ -131,7 +137,11 @@ export default function ChatPage({ addToast }) {
                   <div className="citations">
                     {msg.citations.map((c, i) => (
                       <span key={i} className="citation-chip">
-                        📄 {c}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 2 }}>
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        {c}
                       </span>
                     ))}
                   </div>
@@ -148,11 +158,11 @@ export default function ChatPage({ addToast }) {
         {loading && (
           <div className="typing-indicator">
             <div className="message-avatar" style={{
-              background: 'linear-gradient(135deg, #a855f7 0%, #06b6d4 50%, #ec4899 100%)',
-              width: 32, height: 32, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+              background: 'var(--gradient-primary)',
+              width: 28, height: 28, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 'bold'
             }}>
-              🤖
+              AI
             </div>
             <div className="typing-dots">
               <div className="typing-dot" />
@@ -171,7 +181,7 @@ export default function ChatPage({ addToast }) {
           <textarea
             ref={inputRef}
             className="chat-input"
-            placeholder="Ask something about your docs... 💡"
+            placeholder="Ask a question about your documents..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -187,7 +197,10 @@ export default function ChatPage({ addToast }) {
             {loading ? (
               <span className="spinner spinner-sm" style={{ borderTopColor: 'white', borderColor: 'rgba(255,255,255,0.2)' }} />
             ) : (
-              '➤'
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
             )}
           </button>
         </div>

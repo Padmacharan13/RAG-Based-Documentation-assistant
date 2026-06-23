@@ -3,10 +3,11 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import bcrypt
 
-# Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("FATAL: JWT_SECRET_KEY environment variable is not set.")
+def _get_secret_key():
+    key = os.environ.get("JWT_SECRET_KEY")
+    if not key:
+        raise ValueError("FATAL: JWT_SECRET_KEY environment variable is not set.")
+    return key
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 2
@@ -43,7 +44,7 @@ def create_access_token(user_id: int, username: str) -> str:
         "username": username,
         "exp": expire
     }
-    encoded_jwt = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -52,7 +53,7 @@ def decode_access_token(token: str) -> dict:
     Decodes a JWT access token. Returns payload dict if valid, raises exception if expired/invalid.
     """
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise ValueError("Token has expired")

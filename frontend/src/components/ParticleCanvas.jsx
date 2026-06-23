@@ -24,11 +24,11 @@ export default function ParticleCanvas() {
       reset() {
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
-        this.size = Math.random() * 2 + 0.5;
-        this.speedX = (Math.random() - 0.5) * 0.3;
-        this.speedY = (Math.random() - 0.5) * 0.3;
-        this.opacity = Math.random() * 0.5 + 0.1;
-        this.hue = Math.random() > 0.5 ? 270 : 190; // purple or cyan
+        this.size = Math.random() * 1.5 + 0.3;
+        this.speedX = (Math.random() - 0.5) * 0.15;
+        this.speedY = (Math.random() - 0.5) * 0.15;
+        this.opacity = Math.random() * 0.3 + 0.05;
+        this.hue = 260; // refined violet
       }
 
       update() {
@@ -42,7 +42,7 @@ export default function ParticleCanvas() {
       draw() {
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${this.hue}, 80%, 65%, ${this.opacity})`;
+        ctx.fillStyle = `hsla(${this.hue}, 40%, 70%, ${this.opacity})`;
         ctx.fill();
       }
     }
@@ -50,7 +50,7 @@ export default function ParticleCanvas() {
     function init() {
       resize();
       particles = [];
-      const count = Math.min(80, Math.floor((canvas.width * canvas.height) / 15000));
+      const count = Math.min(50, Math.floor((canvas.width * canvas.height) / 25000));
       for (let i = 0; i < count; i++) {
         particles.push(new Particle());
       }
@@ -63,12 +63,12 @@ export default function ParticleCanvas() {
           const dy = particles[i].y - particles[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < 120) {
-            const opacity = (1 - dist / 120) * 0.15;
+          if (dist < 100) {
+            const opacity = (1 - dist / 100) * 0.08;
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);
             ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(168, 85, 247, ${opacity})`;
+            ctx.strokeStyle = `rgba(139, 92, 246, ${opacity})`;
             ctx.lineWidth = 0.5;
             ctx.stroke();
           }

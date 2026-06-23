@@ -18,15 +18,15 @@ export default function AuthPage({ onAuthSuccess, addToast }) {
     try {
       if (activeTab === 'register') {
         await register(username, password);
-        setSuccess('Account created! 🎉 Switching to login...');
-        addToast('Account created successfully!', 'success');
+        setSuccess('Account created successfully. Redirecting to sign in...');
+        addToast('Account created successfully.', 'success');
         setTimeout(() => {
           setActiveTab('login');
           setSuccess('');
         }, 1500);
       } else {
         await login(username, password);
-        addToast(`Welcome back, ${username}! 🚀`, 'success');
+        addToast(`Welcome back, ${username}.`, 'success');
         onAuthSuccess(username);
       }
     } catch (err) {
@@ -52,12 +52,16 @@ export default function AuthPage({ onAuthSuccess, addToast }) {
 
       <div className="auth-container">
         <div className="auth-header">
-          <div className="auth-logo">⚡</div>
+          <div className="auth-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
           <h1 className="auth-title">
             <span className="neon-text">RAG Assistant</span>
           </h1>
           <p className="auth-subtitle">
-            Your AI-powered docs companion ✨
+            Secure, private retrieval-augmented generation
           </p>
         </div>
 
@@ -77,7 +81,7 @@ export default function AuthPage({ onAuthSuccess, addToast }) {
             </button>
           </div>
 
-          {error && <div className="auth-error">⚠️ {error}</div>}
+          {error && <div className="auth-error">{error}</div>}
           {success && <div className="auth-success">{success}</div>}
 
           <form onSubmit={handleSubmit}>
@@ -117,10 +121,10 @@ export default function AuthPage({ onAuthSuccess, addToast }) {
               {loading ? (
                 <>
                   <span className="spinner spinner-sm" />
-                  {activeTab === 'login' ? 'Signing in...' : 'Creating account...'}
+                  <span>{activeTab === 'login' ? 'Signing in...' : 'Creating account...'}</span>
                 </>
               ) : (
-                activeTab === 'login' ? 'Sign In 🚀' : 'Create Account ✨'
+                <span>{activeTab === 'login' ? 'Sign In' : 'Create Account'}</span>
               )}
             </button>
           </form>
