@@ -1,137 +1,163 @@
-# RAG-Based Documentation Assistant - Week 2 (Retrieval & Generation Loop)
+# RAG-Based Documentation Assistant
 
-This repository implements a modular, lightweight, and production-ready Retrieval-Augmented Generation (RAG) system for document QA. 
-
-**Week 1** established the ingestion pipeline (PDF parsing, token-based chunking, SentenceTransformer embedding, and FAISS indexing). 
-**Week 2** completes the core loop by adding **Cosine Similarity thresholding**, **SQLite metadata database storage**, **Groq LLM generation (`llama-3.3-70b-versatile`)**, **inline citation resolving**, **query transaction logging**, and a **FastAPI web server**.
+A lightweight, secure, and production-ready Retrieval-Augmented Generation (RAG) system featuring a modular FastAPI backend and an interactive, modern React + Vite frontend. The system supports multi-user private indexing, asynchronous background document processing, similarity-based short-circuiting, citation parsing, and query transaction logging.
 
 ---
 
-## 🏗️ Architecture & Modules
+## 🏗️ Architecture & Pipeline Workflow
 
-The system is built as a pure-Python library with zero heavy framing wrappers (like LangChain) to keep details clean, transparent, and easy to extend.
+The project is structured as a clean, transparent, and custom-built RAG pipeline without heavy framing libraries (like LangChain), giving you complete control over extraction, storage, and retrieval.
 
 ```
 d:\RAG-based Documentation Assistant/
-├── .gitignore             # Git exclusion rules
-├── requirements.txt       # Updated dependencies (pypdf, sentence-transformers, faiss-cpu, groq, fastapi, uvicorn, python-dotenv)
-├── README.md              # Technical documentation & usage instructions
-├── app.py                 # FastAPI Web Server (ask and logs endpoints)
-├── test_rag_pipeline.py   # Ingestion verification script (Week 1 / SQLite updater)
-├── test_week2_pipeline.py # End-to-end RAG verification script (Week 2 checkpoint)
-├── vector_store_db/       # Serialized FAISS index files
-├── rag_database.db        # SQLite database (stores chunks and query logs)
-└── src/                   # Python package containing RAG pipeline modules
-    ├── __init__.py        # Exposes public classes and functions
-    ├── extractor.py       # PDF Text Page-by-Page Extraction
-    ├── chunker.py         # Token-based Text Chunking
-    ├── embedder.py        # Sentence Embeddings Generator (L2 Normalized)
-    ├── vector_store.py    # FAISS Vector Storage & Search
-    ├── database.py        # SQLite Database (chunks table + query transaction logs)
-    ├── generator.py       # Groq LLM client & [Source N] citation regex parser
-    └── pipeline.py        # RAG pipeline orchestrator
+├── app.py                 # FastAPI Web Server (Auth, upload, ask, & logs endpoints)
+├── rag_database.db        # SQLite Database (Stores user info, document states, chunks, and logs)
+├── vector_store_db/       # Serialized user-partitioned FAISS index files
+├── requirements.txt       # Python dependencies
+├── src/                   # Python package containing RAG pipeline modules
+│   ├── __init__.py        # Exposes public classes and functions
+│   ├── auth.py            # Password hashing (bcrypt) and JWT token operations
+│   ├── extractor.py       # PDF Text Page-by-Page Extraction
+│   ├── chunker.py         # Token-based Text Chunking
+│   ├── embedder.py        # Sentence Embeddings Generator (L2 Normalized)
+│   ├── vector_store.py    # FAISS Vector Storage & Search
+│   ├── database.py        # SQLite Database Interface (Users, Docs, Chunks, Query Logs)
+│   ├── generator.py       # Groq LLM Client & citation regex parser
+│   └── pipeline.py        # RAG pipeline orchestrator
+└── frontend/              # Interactive React + Vite SPA
+    ├── src/
+    │   ├── api.js         # API client & auth tokens management
+    │   ├── App.jsx        # Main application router
+    │   ├── components/    # ParticleCanvas, Sidebar, Toast, etc.
+    │   └── pages/         # AuthPage, DashboardPage, ChatPage, LogsPage
+    └── vite.config.js     # Dev server proxy configuration
 ```
 
-### Module Descriptions & Important Details
+---
 
-#### 1. SQLite Database Layer (`src/database.py`)
-- **Responsibility**: Manages persistence for chunk text/page mappings and logs user query transactions.
-- **Details**:
-  - `chunks` table: Maps a `chunk_index` (matching its order in the FAISS index) to its raw `text`, `page_number`, and `document_name`. 
-  - `query_logs` table: Stores query transactions, including query string, generated answer, and a JSON dump of retrieved chunks (with similarity scores) for analysis and debugging.
+## 🔄 The RAG Pipeline
 
-#### 2. L2-Normalized Embeddings (`src/embedder.py` & `src/vector_store.py`)
-- **Responsibility**: Generates 384-dimensional dense vectors using `all-MiniLM-L6-v2`.
-- **Details**: Activates L2 vector normalization. Since we normalize vectors, standard FAISS L2 Euclidean distance $d$ correlates to Cosine Similarity via:
+The application splits its work into two primary pipelines: the **Ingestion Pipeline** and the **Retrieval & Generation Loop**.
+
+```
+                       INGESTION PIPELINE
+[PDF File] ➔ PDFExtractor ➔ TokenChunker ➔ DocumentEmbedder ➔ FAISS Index & SQLite
+
+                    RETRIEVAL & GENERATION LOOP
+[User Query] ➔ Embed Query ➔ Search FAISS ➔ Cosine Similarity Threshold Check
+                                                  │
+                      ┌───────────────────────────┴───────────────────────────┐
+            [Below Threshold (< 0.35)]                               [Above Threshold (>= 0.35)]
+                      │                                                       │
+                      ▼                                                       ▼
+            Short-circuit pipeline                               Fetch Chunks from SQLite DB
+         (Return Fallback Response)                                           │
+                                                                              ▼
+                                                                  Orchestrate Prompt for LLM
+                                                                              │
+                                                                              ▼
+                                                                   Query LLM (Groq API)
+                                                                              │
+                                                                              ▼
+                                                                   Parse Citations & Log Query
+                                                                              │
+                                                                              ▼
+                                                                   Send Segmented Response
+```
+
+### 1. Ingestion Pipeline
+* **Text Extraction (`src/extractor.py`)**: Page-by-page text parsing from PDF uploads using `pypdf`.
+* **Token-based Chunking (`src/chunker.py`)**: Splits the extracted text into chunks based on token lengths (default: 100 tokens with an overlap of 15 tokens) using the SentenceTransformer tokenizer.
+* **L2-Normalized Embeddings (`src/embedder.py`)**: Generates 384-dimensional vector embeddings for each text chunk using the `all-MiniLM-L6-v2` transformer model. The vectors are L2-normalized so that cosine similarity can be calculated efficiently from Euclidean distances.
+* **Partitioned Vector Indexing (`src/vector_store.py`)**: Indexes vectors in a user-partitioned FAISS database, saved under `vector_store_db/{user_id}/`. This keeps vectors segregated by account.
+* **Metadata Database Storage (`src/database.py`)**: Stores raw chunk text, source page numbers, document names, and user ownership mapping in SQLite (`rag_database.db`).
+
+### 2. Retrieval & Generation (RAG) Loop
+* **User Query Embedding**: The user's query is embedded into a 384-dimensional vector using the same `all-MiniLM-L6-v2` model.
+* **Cosine Similarity & Thresholding**: Finds the top $K$ closest chunks from the user's FAISS index. Distance values are converted into Cosine Similarity scores using:
   $$\text{Cosine Similarity} = 1.0 - \frac{d^2}{2.0}$$
+  If the top similarity score is below the configured threshold (default `0.35`), the orchestrator short-circuits the pipeline, bypasses the LLM to save cost and latency, and returns a clean fallback answer.
+* **Context Generation & Groq LLM API (`src/generator.py`)**: If the chunks are relevant, raw text chunks are retrieved from SQLite and formatted into a system prompt. The query is processed by Groq's `llama-3.3-70b-versatile` running at a deterministic `temperature=0.0`.
+* **Citation Resolution**: The LLM is instructed to cite source claims using `[Source N]`. A custom regex parser replaces these tokens with formatted `[Page X]` page markers and extracts structured references containing chunk text and page numbers.
+* **Transaction Logging**: Saves each interaction (query, LLM response, retrieved chunks with scores, token usage, and latency) in the database (`query_logs` table) for monitoring and auditing.
 
-#### 3. RAG Pipeline Orchestrator (`src/pipeline.py`)
-- **Responsibility**: Coordinates embedding, searching, thresholding, database loading, and generation.
-- **Details**:
-  - Receives the query, embeds it, and searches FAISS.
-  - Converts distances to Cosine Similarities and applies a `similarity_threshold` (default `0.35`).
-  - **Short-circuiting**: If the closest matching chunk's similarity is below the threshold, it immediately logs and returns a fallback message (`"I'm sorry, but the provided document does not contain enough information to answer your question."`), bypassing the LLM to save latency and cost.
-  - If relevant, fetches chunk texts and page numbers from SQLite, queries the generator, and logs the query transaction.
+---
 
-#### 4. Groq LLM Generation & Citation Parsing (`src/generator.py`)
-- **Responsibility**: Generates responses using Groq's client library and parses citation markers.
-- **Details**:
-  - Prompts `llama-3.3-70b-versatile` at `temperature=0.0` with strict instructions to restrict itself to the context and cite claims using `[Source N]`.
-  - Regular expressions parse `[Source N]` tags and map them back to the source page numbers fetched from the SQLite database.
-  - Returns raw LLM text, a `clean_answer` (formatting tags like `[Page X]`), sorted unique `citations`, and structured `segments` (perfect for rendering clickable references in UIs).
-
-#### 5. FastAPI Web Server (`app.py`)
-- **Responsibility**: Exposes the pipeline via a REST API.
-- **Endpoints**:
-  - `POST /ask`: Accepts `{"question": "..."}`. Returns the segmented answer, clean answer, and citations.
-  - `GET /query_logs`: Returns the transaction logs from the SQLite database.
+## 🔑 Authentication & Security
+* **Password Security (`src/auth.py`)**: User passwords are encrypted with `bcrypt` (safely truncated to the 72-byte hashing limit).
+* **Stateless JWT Session**: FastAPI issues JSON Web Tokens upon successful login (`POST /login`). These tokens are stored securely in the browser's `localStorage` and sent in the `Authorization: Bearer <token>` header for protected endpoints (`/upload`, `/ask`, `/query_logs`).
+* **Rate Limiting**: Limits the number of query executions (`/ask`) per hour (configurable via `RATE_LIMIT_PER_HOUR` in `.env`) to prevent resource abuse.
 
 ---
 
 ## 🚀 Setup & Execution Guide
 
 ### Prerequisites
-- Python 3.8+ (tested on Python 3.12)
-- Groq API Key (Sign up at [Groq Console](https://console.groq.com/))
+* **Python 3.8+** (tested on 3.11 and 3.12)
+* **Node.js v18+ & npm v9+**
+* **Groq API Key** (Get one at the [Groq Console](https://console.groq.com/))
 
-### 1. Installation
-Clone the repository, initialize your virtual environment, and install the updated requirements:
+---
 
-```bash
-# Create virtual environment
-python -m venv .venv
+### 1. Environment Configuration
 
-# Activate virtual environment (Windows PowerShell)
-.venv\Scripts\activate
+Create a `.env` file in the root directory (based on the template below) to manage project settings:
 
-# Install dependencies
-python -m pip install -r requirements.txt
+```env
+# Groq LLM API Configuration
+GROQ_API_KEY="your_groq_api_key_here"
+
+# Database Configuration
+DATABASE_PATH="rag_database.db"
+VECTOR_DB_DIR="vector_store_db"
+
+# FastAPI Server Settings
+API_HOST="127.0.0.1"
+API_PORT=8000
+
+# Security Configuration
+JWT_SECRET_KEY="generate_a_long_random_hex_string_here"
+RATE_LIMIT_PER_HOUR=60
 ```
 
-### 2. Configure Your API Key
-Supply your Groq API Key by setting the `GROQ_API_KEY` environment variable:
+---
 
-```bash
-# Windows PowerShell
-$env:GROQ_API_KEY="gsk_your_actual_key_here"
+### 2. Backend Installation & Start
 
-# Windows CMD
-set GROQ_API_KEY="gsk_your_actual_key_here"
+1. Initialize a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   ```
+2. Activate the virtual environment:
+   * **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
+   * **Windows (CMD)**: `.venv\Scripts\activate.bat`
+   * **macOS / Linux**: `source .venv/bin/activate`
+3. Install backend dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+4. Start the FastAPI server using Uvicorn:
+   ```bash
+   uvicorn app:app --reload --port 8000
+   ```
+   The backend API will be running at `http://localhost:8000`. You can access interactive documentation at `http://localhost:8000/docs`.
 
-# Linux / macOS
-export GROQ_API_KEY="gsk_your_actual_key_here"
-```
+---
 
-### 3. Run Ingestion and Ingestion Verification
-Run the Week 1 test pipeline to generate a dummy PDF, extract and chunk text, and populate the FAISS index and the SQLite database:
+### 3. Frontend Installation & Start
 
-```bash
-python test_rag_pipeline.py
-```
+1. Open a new terminal and navigate to the `frontend/` directory:
+   ```bash
+   cd frontend
+   ```
+2. Install npm dependencies:
+   ```bash
+   npm install
+   ```
+3. Launch the Vite development server:
+   ```bash
+   npm run dev
+   ```
+   The frontend will run at `http://localhost:5173`. 
 
-### 4. Run the Week 2 Verification Checklist
-Verify the entire retrieval, similarity calculations, threshold short-circuiting, citation parsing, and query logging in SQLite:
-
-```bash
-python test_week2_pipeline.py
-```
-*(Note: If `GROQ_API_KEY` is not set, this script runs in a **Mock LLM Mode** to safely verify parsing and database logging logic without crashing).*
-
-### 5. Running the Web API
-Start the FastAPI server using Uvicorn:
-
-```bash
-.venv\Scripts\uvicorn app:app --reload --port 8000
-```
-
-#### Test RAG Queries (`POST /ask`)
-```bash
-curl -X POST "http://127.0.0.1:8000/ask" \
-     -H "Content-Type: application/json" \
-     -d '{"question": "What is Retrieval-Augmented Generation?", "similarity_threshold": 0.35}'
-```
-
-#### View Logging Transactions (`GET /query_logs`)
-```bash
-curl http://127.0.0.1:8000/query_logs
-```
+Open `http://localhost:5173` in your browser. You can now register an account, login, upload PDFs, ask questions with real-time similarity visualization, and view your queries audit log!
