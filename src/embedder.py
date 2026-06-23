@@ -7,10 +7,11 @@ class DocumentEmbedder:
     Handles generating dense vector embeddings for text chunks
     using the sentence-transformers library.
     """
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", normalize: bool = True):
         # This will load the model (downloading it on first run)
         self.model = SentenceTransformer(model_name)
         self.embedding_dimension = self.model.get_embedding_dimension()
+        self.normalize = normalize
 
     def embed_chunks(self, chunks: List[str]) -> np.ndarray:
         """
@@ -29,7 +30,8 @@ class DocumentEmbedder:
         embeddings = self.model.encode(
             chunks, 
             show_progress_bar=False, 
-            convert_to_numpy=True
+            convert_to_numpy=True,
+            normalize_embeddings=self.normalize
         )
         return embeddings.astype(np.float32)
 
@@ -46,6 +48,7 @@ class DocumentEmbedder:
         embedding = self.model.encode(
             query, 
             show_progress_bar=False, 
-            convert_to_numpy=True
+            convert_to_numpy=True,
+            normalize_embeddings=self.normalize
         )
         return embedding.astype(np.float32)

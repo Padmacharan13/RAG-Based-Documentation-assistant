@@ -13,3 +13,9 @@ vector_store_db/
 
 # Test artifacts
 test_document.pdf
+.env
+test_rag_pipeline.py
+test_week2_pipeline.py
+test_rag_pipeline.py
+rag_database.db
+test_rag_pipeline.py

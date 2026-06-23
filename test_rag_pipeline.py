@@ -100,7 +100,14 @@ def run_test_pipeline():
     # Save database to disk
     print(f"Saving vector database to directory '{vector_db_dir}'...")
     vector_store.save(vector_db_dir)
-    print("Vector database saved.\n")
+    print("Vector database saved.")
+    
+    # Save chunks to SQLite database
+    db_path = "rag_database.db"
+    print(f"Saving metadata chunks to SQLite database '{db_path}'...")
+    from src.database import save_chunks
+    save_chunks(db_path, chunks)
+    print("Database chunks saved.\n")
     
     print("--- STEP 5: Verification (Load DB & Search) ---")
     # Load the DB back to verify loading logic works
@@ -123,7 +130,10 @@ def run_test_pipeline():
         
         if search_results:
             metadata, distance = search_results[0]
-            print(f"-> Top Match (Distance Score: {distance:.4f}):")
+            similarity = 1.0 - (distance / 2.0)
+            print(f"-> Top Match:")
+            print(f"   [Distance Score: {distance:.4f}]")
+            print(f"   [Cosine Similarity: {similarity:.4f}]")
             print(f"   [Source Page: {metadata['page_number']}]")
             print(f"   [Content]: \"{metadata['text']}\"")
         else:
