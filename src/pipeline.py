@@ -65,7 +65,8 @@ class RAGPipeline:
                 "clean_answer": fallback_msg,
                 "citations": [],
                 "segments": [{"type": "text", "content": fallback_msg}],
-                "short_circuited": True
+                "short_circuited": True,
+                "retrieved_chunks": []
             }
 
         # 1. Embed query (the embedder should return an L2-normalized vector)
@@ -118,7 +119,8 @@ class RAGPipeline:
                 "clean_answer": fallback_msg,
                 "citations": [],
                 "segments": [{"type": "text", "content": fallback_msg}],
-                "short_circuited": True
+                "short_circuited": True,
+                "retrieved_chunks": []
             }
             
         # 4. Fetch chunk details (text + page numbers) from SQLite table matching user_id
@@ -148,6 +150,7 @@ class RAGPipeline:
         # 6. Parse and resolve [Source N] citation tags
         parsed_result = self.generator.parse_citations(raw_response, retrieved_chunks)
         parsed_result["short_circuited"] = False
+        parsed_result["retrieved_chunks"] = retrieved_chunks
         
         # 7. Log query transaction
         latency_ms = (time.perf_counter() - start_time) * 1000.0

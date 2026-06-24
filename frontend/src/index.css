@@ -1407,3 +1407,156 @@ body {
 
   .log-meta { display: none; }
 }
+
+/* ═══════════════════════════════════════════
+   LIGHT THEME OVERRIDES
+   ═══════════════════════════════════════════ */
+.light-theme {
+  --bg-primary: #f4f4f5;       /* zinc-100 */
+  --bg-secondary: #fafafa;     /* zinc-50 */
+  --bg-tertiary: #e4e4e7;      /* zinc-200 */
+  --bg-card: rgba(255, 255, 255, 0.7);
+  --bg-glass: rgba(0, 0, 0, 0.02);
+  --bg-glass-hover: rgba(0, 0, 0, 0.05);
+
+  --text-primary: #18181b;     /* zinc-900 */
+  --text-secondary: #52525b;   /* zinc-600 */
+  --text-muted: #a1a1aa;       /* zinc-400 */
+  --text-accent: #7c3aed;      /* violet-600 */
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-glass: rgba(0, 0, 0, 0.1);
+  --border-focus: #7c3aed;
+  --border-glow: rgba(124, 58, 237, 0.15);
+
+  --shadow-glow-sm: 0 0 16px rgba(124, 58, 237, 0.05);
+  --shadow-glow-md: 0 0 32px rgba(124, 58, 237, 0.1);
+  --shadow-card: 0 12px 40px rgba(0, 0, 0, 0.03);
+}
+
+.light-theme .sidebar {
+  background: rgba(244, 244, 245, 0.95);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.light-theme .message.user .message-content {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.light-theme .message.bot .message-content {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════
+   2-COLUMN COLLAPSIBLE CHAT LAYOUT
+   ═══════════════════════════════════════════ */
+.chat-workspace.sidebar-collapsed .chat-sidebar {
+  transform: translateX(-280px);
+  width: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-workspace.sidebar-collapsed .chat-sidebar button {
+  pointer-events: auto; /* keep toggle button clickable */
+}
+
+.chat-workspace.inspector-collapsed .chat-inspector {
+  transform: translateX(320px);
+}
+
+.chat-workspace.inspector-expanded .chat-main {
+  margin-right: 320px;
+}
+
+.history-log-item {
+  border: 1px solid transparent;
+}
+
+.history-log-item:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-subtle);
+}
+
+.history-log-item:hover .history-delete-btn {
+  opacity: 1;
+}
+
+.history-delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.history-delete-btn:hover {
+  color: var(--accent-rose) !important;
+}
+
+/* Citation Chip enhancements */
+.citation-chip {
+  background: rgba(6, 182, 212, 0.08);
+  border-color: rgba(6, 182, 212, 0.2) !important;
+  color: var(--accent-cyan) !important;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-smooth);
+}
+
+.citation-chip:hover {
+  background: rgba(6, 182, 212, 0.16);
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+  transform: scale(1.02);
+}
+
+/* Highlight inside citation text */
+.citation-highlight {
+  background: rgba(6, 182, 212, 0.2);
+  border-bottom: 2px solid var(--accent-cyan);
+  color: var(--text-primary);
+  font-weight: 500;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* Connection Status animation helper */
+.online-dot.connected {
+  box-shadow: 0 0 8px var(--accent-emerald);
+}
+
+.online-dot.reconnecting {
+  box-shadow: 0 0 8px var(--accent-amber);
+  animation: pulse-soft 1s infinite alternate;
+}
+
+.online-dot.error {
+  box-shadow: 0 0 8px var(--accent-rose);
+  animation: pulse-soft 0.5s infinite alternate;
+}
+
+/* Modal details overlay */
+.modal-backdrop {
+  backdrop-filter: blur(8px);
+}
+
+/* Hover border animations for dashboard cards */
+.hover-card-border:hover {
+  border-color: var(--accent-primary) !important;
+  box-shadow: var(--shadow-glow-sm);
+  transform: translateY(-1px);
+}
+
+.doc-grid-card {
+  transition: all 0.3s var(--ease-smooth);
+}
+.doc-grid-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-glow-sm);
+  border-color: rgba(255,255,255,0.15);
+}
+
+.light-theme .doc-grid-card:hover {
+  border-color: rgba(0,0,0,0.15);
+}
+

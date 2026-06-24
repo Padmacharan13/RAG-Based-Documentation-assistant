@@ -13,6 +13,7 @@ export default defineConfig({
       '/documents': 'http://localhost:8000',
       '/ask': 'http://localhost:8000',
       '/query_logs': 'http://localhost:8000',
+      '/analytics': 'http://localhost:8000',
     },
   },
 })

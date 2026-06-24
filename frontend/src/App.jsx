@@ -4,14 +4,17 @@ import Toast, { useToast } from './components/Toast';
 import Sidebar from './components/Sidebar';
 import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
+import DocumentPage from './pages/DocumentPage';
 import ChatPage from './pages/ChatPage';
-import LogsPage from './pages/LogsPage';
+import AnalyticsPage from './pages/AnalyticsPage';
+import SettingsPage from './pages/SettingsPage';
 import { isAuthenticated, logout as apiLogout, getUsername } from './api';
 
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated());
   const [view, setView] = useState('dashboard');
   const [username, setUsername] = useState(getUsername());
+  const [theme, setTheme] = useState(localStorage.getItem('rag_theme') || 'dark');
   const { toasts, addToast, removeToast } = useToast();
 
   // Sync auth state
@@ -19,6 +22,18 @@ export default function App() {
     setAuthed(isAuthenticated());
     setUsername(getUsername());
   }, []);
+
+  // Theme effect
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.add('light-theme');
+      localStorage.setItem('rag_theme', 'light');
+    } else {
+      root.classList.remove('light-theme');
+      localStorage.setItem('rag_theme', 'dark');
+    }
+  }, [theme]);
 
   function handleAuthSuccess(name) {
     setAuthed(true);
@@ -37,6 +52,10 @@ export default function App() {
     setView(newView);
   }
 
+  function handleToggleTheme() {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  }
+
   return (
     <>
       <ParticleCanvas />
@@ -51,16 +70,30 @@ export default function App() {
             onNavigate={handleNavigate}
             username={username}
             onLogout={handleLogout}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
           />
           <main className="main-content">
             {view === 'dashboard' && (
-              <DashboardPage addToast={addToast} />
+              <DashboardPage onNavigate={handleNavigate} addToast={addToast} />
+            )}
+            {view === 'documents' && (
+              <DocumentPage addToast={addToast} />
             )}
             {view === 'chat' && (
               <ChatPage addToast={addToast} />
             )}
-            {view === 'logs' && (
-              <LogsPage addToast={addToast} />
+            {view === 'analytics' && (
+              <AnalyticsPage addToast={addToast} />
+            )}
+            {view === 'settings' && (
+              <SettingsPage
+                username={username}
+                theme={theme}
+                onToggleTheme={handleToggleTheme}
+                addToast={addToast}
+                onLogout={handleLogout}
+              />
             )}
           </main>
         </div>

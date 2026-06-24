@@ -97,6 +97,18 @@ export async function getDocumentStatus(documentId) {
   return apiFetch(`/documents/${documentId}`);
 }
 
+// List all documents
+export async function listDocuments() {
+  return apiFetch('/documents');
+}
+
+// Delete document
+export async function deleteDocument(documentId) {
+  return apiFetch(`/documents/${documentId}`, {
+    method: 'DELETE',
+  });
+}
+
 // Ask question
 export async function askQuestion(question, k = 4, similarityThreshold = 0.35) {
   return apiFetch('/ask', {
@@ -112,6 +124,18 @@ export async function askQuestion(question, k = 4, similarityThreshold = 0.35) {
 // Query logs
 export async function getQueryLogs() {
   return apiFetch('/query_logs');
+}
+
+// Delete query log
+export async function deleteQueryLog(logId) {
+  return apiFetch(`/query_logs/${logId}`, {
+    method: 'DELETE',
+  });
+}
+
+// Get metrics analytics
+export async function getAnalytics() {
+  return apiFetch('/analytics');
 }
 
 export { getToken, getUsername };
