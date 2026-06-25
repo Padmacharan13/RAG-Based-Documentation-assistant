@@ -4,7 +4,6 @@ load_dotenv()
 
 import os
 import shutil
-import sqlite3
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status, Header
 from fastapi.responses import FileResponse
@@ -20,12 +19,21 @@ from src.chunker import TokenChunker
 from src.database import (
     init_db,
     save_chunks,
-    get_db_connection,
     create_user,
     get_user_by_username,
     create_document,
     update_document_status,
-    get_document
+    get_document,
+    get_query_count_last_hour,
+    get_query_logs,
+    delete_query_log,
+    delete_document_by_id,
+    list_documents,
+    rebuild_vector_store_chunks,
+    reset_chunk_indices,
+    get_analytics_data,
+    log_query,
+    verify_document_ownership
 )
 from src.auth import hash_password, verify_password, create_access_token, decode_access_token
 from fastapi.middleware.cors import CORSMiddleware
@@ -132,7 +140,7 @@ def process_document_task(user_id: int, document_id: int, file_path: str, filena
         vector_store.add_documents(embeddings, chunks)
         vector_store.save(user_dir)
         
-        # 6. Save metadata chunks to SQLite database
+        # 6. Save metadata chunks to MongoDB database
         save_chunks(DB_PATH, user_id, chunks, clear_existing=False, start_index=start_index)
         
         # 7. Update status to COMPLETED
@@ -151,7 +159,7 @@ def process_document_task(user_id: int, document_id: int, file_path: str, filena
 def startup_event():
     global global_embedder, global_generator
     try:
-        print("Initializing SQLite Database...")
+        print("Initializing MongoDB Database...")
         init_db(DB_PATH)
         
         print("Initializing DocumentEmbedder...")
@@ -216,7 +224,7 @@ def upload_document(
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    # Write initial pending document state to SQLite database
+    # Write initial pending document state to MongoDB database
     document_id = create_document(DB_PATH, user_id, file.filename, "PENDING")
     
     # Delegate extraction, embedding, and indexing to background thread
@@ -267,15 +275,7 @@ def ask(
     # 1. Rate Limiting check (capped per hour)
     rate_limit = int(os.environ.get("RATE_LIMIT_PER_HOUR", "60"))
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        # Count queries in the last 1 hour
-        cursor.execute(
-            "SELECT COUNT(*) FROM query_logs WHERE user_id = ? AND timestamp >= datetime('now', '-1 hour')",
-            (user_id,)
-        )
-        query_count = cursor.fetchone()[0]
-        conn.close()
+        query_count = get_query_count_last_hour(DB_PATH, user_id)
     except Exception as e:
         print(f"Error checking rate limit: {e}")
         query_count = 0
@@ -319,31 +319,10 @@ def ask(
 
 # Query Logs Endpoint
 @app.get("/query_logs")
-def get_query_logs(current_user: dict = Depends(get_current_user)):
+def get_query_logs_endpoint(current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, query, response, retrieved_chunks, timestamp, latency_ms, prompt_tokens, completion_tokens "
-            "FROM query_logs WHERE user_id = ? ORDER BY timestamp DESC",
-            (user_id,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        
-        logs = []
-        for r in rows:
-            logs.append({
-                "id": r["id"],
-                "query": r["query"],
-                "response": r["response"],
-                "retrieved_chunks": r["retrieved_chunks"],
-                "timestamp": r["timestamp"],
-                "latency_ms": r["latency_ms"],
-                "prompt_tokens": r["prompt_tokens"],
-                "completion_tokens": r["completion_tokens"]
-            })
+        logs = get_query_logs(DB_PATH, user_id)
         return {"logs": logs}
     except Exception as e:
         raise HTTPException(
@@ -353,26 +332,17 @@ def get_query_logs(current_user: dict = Depends(get_current_user)):
 
 # Helper function to rebuild the user's FAISS index after deletion
 def rebuild_user_vector_store(user_id: int):
-    import json
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT text, page_number, document_name FROM chunks WHERE user_id = ? ORDER BY id ASC",
-            (user_id,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        chunks = rebuild_vector_store_chunks(DB_PATH, user_id)
         
         user_dir = os.path.join(VECTOR_DB_DIR, str(user_id))
         if os.path.exists(user_dir):
             shutil.rmtree(user_dir)
         os.makedirs(user_dir, exist_ok=True)
         
-        if not rows:
+        if not chunks:
             return
             
-        chunks = [{"text": r["text"], "page_number": r["page_number"], "document_name": r["document_name"]} for r in rows]
         chunk_texts = [c["text"] for c in chunks]
         
         embeddings = global_embedder.embed_chunks(chunk_texts)
@@ -382,16 +352,7 @@ def rebuild_user_vector_store(user_id: int):
         vector_store.save(user_dir)
         
         # Reset chunk_indices contiguously
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM chunks WHERE user_id = ? ORDER BY id ASC", (user_id,))
-        chunk_ids = [r[0] for r in cursor.fetchall()]
-        
-        for new_idx, chunk_id in enumerate(chunk_ids):
-            cursor.execute("UPDATE chunks SET chunk_index = ? WHERE id = ?", (new_idx, chunk_id))
-            
-        conn.commit()
-        conn.close()
+        reset_chunk_indices(DB_PATH, user_id)
         print(f"Successfully rebuilt FAISS vector store and contiguous indices for user {user_id}")
     except Exception as e:
         print(f"Error rebuilding vector store for user {user_id}: {e}")
@@ -433,13 +394,7 @@ def download_document_by_name(
     user_id = current_user["user_id"]
     
     # Verify the document belongs to this user
-    conn = get_db_connection(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM documents WHERE user_id = ? AND filename = ?", (user_id, filename))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if not row:
+    if not verify_document_ownership(DB_PATH, user_id, filename):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found or access denied"
@@ -456,38 +411,10 @@ def download_document_by_name(
 
 # Document management endpoints
 @app.get("/documents")
-def list_documents(current_user: dict = Depends(get_current_user)):
+def list_documents_route(current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, filename, status, error_message, created_at FROM documents WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,)
-        )
-        docs = cursor.fetchall()
-        
-        results = []
-        for d in docs:
-            filename = d["filename"]
-            cursor.execute(
-                "SELECT COUNT(*), MAX(page_number) FROM chunks WHERE user_id = ? AND document_name = ?",
-                (user_id, filename)
-            )
-            chunk_count, max_page = cursor.fetchone()
-            sim_size = round((chunk_count or 0) * 0.45 + 15.2, 1)
-            
-            results.append({
-                "id": d["id"],
-                "filename": d["filename"],
-                "status": d["status"],
-                "error_message": d["error_message"],
-                "created_at": d["created_at"],
-                "chunk_count": chunk_count or 0,
-                "page_count": max_page or (1 if d["status"] == "COMPLETED" else 0),
-                "file_size_kb": sim_size
-            })
-        conn.close()
+        results = list_documents(DB_PATH, user_id)
         return {"documents": results}
     except Exception as e:
         raise HTTPException(
@@ -496,25 +423,10 @@ def list_documents(current_user: dict = Depends(get_current_user)):
         )
 
 @app.delete("/documents/{document_id}")
-def delete_document(document_id: int, current_user: dict = Depends(get_current_user)):
+def delete_document_route(document_id: int, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT filename FROM documents WHERE id = ? AND user_id = ?", (document_id, user_id))
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found or access denied"
-            )
-            
-        filename = row["filename"]
-        cursor.execute("DELETE FROM documents WHERE id = ? AND user_id = ?", (document_id, user_id))
-        cursor.execute("DELETE FROM chunks WHERE user_id = ? AND document_name = ?", (user_id, filename))
-        conn.commit()
-        conn.close()
+        filename = delete_document_by_id(DB_PATH, user_id, document_id)
         
         # Delete persistent PDF file from disk
         file_path = os.path.join(UPLOADS_DIR, str(user_id), filename)
@@ -526,8 +438,11 @@ def delete_document(document_id: int, current_user: dict = Depends(get_current_u
                 
         rebuild_user_vector_store(user_id)
         return {"message": f"Document '{filename}' deleted successfully"}
-    except HTTPException:
-        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -536,109 +451,11 @@ def delete_document(document_id: int, current_user: dict = Depends(get_current_u
 
 # Analytics endpoint
 @app.get("/analytics")
-def get_analytics(current_user: dict = Depends(get_current_user)):
-    import json
+def get_analytics_route(current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), AVG(latency_ms) "
-            "FROM query_logs WHERE user_id = ?",
-            (user_id,)
-        )
-        total_queries, total_prompt, total_completion, avg_latency = cursor.fetchone()
-        
-        total_queries = total_queries or 0
-        total_prompt = total_prompt or 0
-        total_completion = total_completion or 0
-        avg_latency = avg_latency or 0.0
-
-        # Hourly queries count for settings/rate limits
-        cursor.execute(
-            "SELECT COUNT(*) FROM query_logs WHERE user_id = ? AND timestamp >= datetime('now', '-1 hour')",
-            (user_id,)
-        )
-        hourly_queries = cursor.fetchone()[0] or 0
-        
-        cursor.execute(
-            "SELECT date(timestamp) as day, COUNT(*) as count "
-            "FROM query_logs WHERE user_id = ? "
-            "GROUP BY day ORDER BY day ASC LIMIT 30",
-            (user_id,)
-        )
-        daily_queries = [{"date": r["day"], "queries": r["count"]} for r in cursor.fetchall()]
-        
-        fallback_str = "I'm sorry, but the provided document does not contain enough information"
-        cursor.execute(
-            "SELECT COUNT(*) FROM query_logs WHERE user_id = ? AND response LIKE ?",
-            (user_id, f"%{fallback_str}%")
-        )
-        fallback_count = cursor.fetchone()[0] or 0
-        success_count = total_queries - fallback_count
-        success_rate = (success_count / total_queries * 100) if total_queries > 0 else 100.0
-        
-        latency_ranges = {
-            "<500ms": 0,
-            "500-1000ms": 0,
-            "1000-2000ms": 0,
-            "2000-3000ms": 0,
-            ">3000ms": 0
-        }
-        cursor.execute("SELECT latency_ms FROM query_logs WHERE user_id = ?", (user_id,))
-        latencies = [r[0] for r in cursor.fetchall()]
-        for lat in latencies:
-            if lat < 500:
-                latency_ranges["<500ms"] += 1
-            elif lat < 1000:
-                latency_ranges["500-1000ms"] += 1
-            elif lat < 2000:
-                latency_ranges["1000-2000ms"] += 1
-            elif lat < 3000:
-                latency_ranges["2000-3000ms"] += 1
-            else:
-                latency_ranges[">3000ms"] += 1
-                
-        latency_histogram = [{"range": k, "count": v} for k, v in latency_ranges.items()]
-        
-        cursor.execute("SELECT retrieved_chunks FROM query_logs WHERE user_id = ?", (user_id,))
-        logs_chunks = cursor.fetchall()
-        doc_counts = {}
-        for row in logs_chunks:
-            if row[0]:
-                try:
-                    chunks_meta = json.loads(row[0])
-                    seen_in_query = set()
-                    for c in chunks_meta:
-                        doc_name = c.get("document_name")
-                        if doc_name and doc_name not in seen_in_query:
-                            seen_in_query.add(doc_name)
-                            doc_counts[doc_name] = doc_counts.get(doc_name, 0) + 1
-                except:
-                    pass
-                    
-        top_documents = sorted([{"name": k, "queries": v} for k, v in doc_counts.items()], key=lambda x: x["queries"], reverse=True)[:5]
-        
-        prompt_rate = 0.59 / 1_000_000
-        completion_rate = 0.79 / 1_000_000
-        estimated_cost = (total_prompt * prompt_rate) + (total_completion * completion_rate)
-        
-        conn.close()
-        
-        return {
-            "total_queries": total_queries,
-            "total_prompt_tokens": total_prompt,
-            "total_completion_tokens": total_completion,
-            "total_tokens": total_prompt + total_completion,
-            "avg_latency_ms": round(avg_latency, 1),
-            "success_rate": round(success_rate, 1),
-            "estimated_cost_usd": round(estimated_cost, 6),
-            "daily_queries": daily_queries,
-            "latency_histogram": latency_histogram,
-            "top_documents": top_documents,
-            "hourly_queries": hourly_queries
-        }
+        data = get_analytics_data(DB_PATH, user_id)
+        return data
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -646,25 +463,16 @@ def get_analytics(current_user: dict = Depends(get_current_user)):
         )
 
 @app.delete("/query_logs/{log_id}")
-def delete_query_log(log_id: int, current_user: dict = Depends(get_current_user)):
+def delete_query_log_route(log_id: int, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
-        conn = get_db_connection(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM query_logs WHERE id = ? AND user_id = ?", (log_id, user_id))
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Log entry not found or access denied"
-            )
-        cursor.execute("DELETE FROM query_logs WHERE id = ? AND user_id = ?", (log_id, user_id))
-        conn.commit()
-        conn.close()
+        delete_query_log(DB_PATH, user_id, log_id)
         return {"message": "Log entry deleted successfully"}
-    except HTTPException:
-        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
