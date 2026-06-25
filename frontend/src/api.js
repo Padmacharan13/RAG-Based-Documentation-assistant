@@ -110,7 +110,7 @@ export async function deleteDocument(documentId) {
 }
 
 // Ask question
-export async function askQuestion(question, k = 4, similarityThreshold = 0.35) {
+export async function askQuestion(question, k = 4, similarityThreshold = 0.25) {
   return apiFetch('/ask', {
     method: 'POST',
     body: JSON.stringify({

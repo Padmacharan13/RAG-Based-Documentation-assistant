@@ -1,11 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { askQuestion, listDocuments, getQueryLogs, deleteQueryLog } from '../api';
+import { askQuestion, listDocuments, getQueryLogs, deleteQueryLog, getToken } from '../api';
 
 export default function ChatPage({ addToast }) {
   // Navigation / Layout State
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState(null);
+  const [inspectorView, setInspectorView] = useState('pdf'); // 'metadata' | 'pdf'
+  const [similarityThreshold, setSimilarityThreshold] = useState(0.25);
+  const [topK, setTopK] = useState(4);
+  const [pdfExists, setPdfExists] = useState(true);
+  const [checkingPdf, setCheckingPdf] = useState(false);
   
   // RAG Content State
   const [documents, setDocuments] = useState([]);
@@ -46,6 +51,35 @@ export default function ChatPage({ addToast }) {
   useEffect(() => {
     loadSidebarData();
   }, [loadSidebarData]);
+
+  // Check if PDF exists on disk when selected citation changes
+  useEffect(() => {
+    if (selectedCitation && inspectorView === 'pdf') {
+      setCheckingPdf(true);
+      setPdfExists(true);
+      const url = `/documents/download/${encodeURIComponent(selectedCitation.document_name)}`;
+      
+      fetch(url, {
+        method: 'HEAD',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      })
+      .then(res => {
+        if (res.status === 404) {
+          setPdfExists(false);
+        } else {
+          setPdfExists(true);
+        }
+      })
+      .catch(() => {
+        setPdfExists(false);
+      })
+      .finally(() => {
+        setCheckingPdf(false);
+      });
+    }
+  }, [selectedCitation, inspectorView]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -158,8 +192,7 @@ export default function ChatPage({ addToast }) {
 
     try {
       // Execute ask query
-      // k=4, similarity=0.35 are defaults. We could customize.
-      const responseData = await askQuestion(q);
+      const responseData = await askQuestion(q, topK, similarityThreshold);
       
       const botText = responseData.clean_answer || responseData.answer || 'No response generated.';
       
@@ -198,6 +231,7 @@ export default function ChatPage({ addToast }) {
         ...matchingChunk,
         highlightWords: input // Highlight words from prompt
       });
+      setInspectorView('pdf');
       setInspectorOpen(true);
     } else {
       addToast(`Could not inspect source details for Page ${citationNum}`, 'info');
@@ -238,6 +272,9 @@ export default function ChatPage({ addToast }) {
     log.query.toLowerCase().includes(historySearch.toLowerCase()) || 
     (log.response && log.response.toLowerCase().includes(historySearch.toLowerCase()))
   );
+
+  const isLargeScreen = typeof window !== 'undefined' ? window.innerWidth > 1024 : true;
+  const inspectorWidth = inspectorView === 'pdf' ? (isLargeScreen ? 650 : '100%') : 360;
 
   return (
     <div className={`chat-workspace ${sidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'} ${inspectorOpen ? 'inspector-expanded' : 'inspector-collapsed'}`} style={{
@@ -298,6 +335,69 @@ export default function ChatPage({ addToast }) {
             </select>
             <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)', fontSize: 10 }}>
               ▼
+            </div>
+          </div>
+        </div>
+
+        {/* RAG Parameters */}
+        <div style={{ padding: 18, borderBottom: '1px solid var(--border-subtle)' }}>
+          <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-secondary)', marginBottom: 14 }}>
+            RAG Parameters
+          </h3>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Similarity Threshold Slider */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Relevance Cutoff</span>
+                <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{similarityThreshold}</span>
+              </div>
+              <input
+                type="range"
+                min="0.0"
+                max="1.0"
+                step="0.05"
+                value={similarityThreshold}
+                onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: 'var(--accent-cyan)',
+                  cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.05)',
+                  height: 4,
+                  borderRadius: 2
+                }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                Lower values fetch more general context; higher values demand strict matches.
+              </div>
+            </div>
+
+            {/* Top K Matches Slider */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Source Chunks (K)</span>
+                <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{topK}</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={topK}
+                onChange={(e) => setTopK(parseInt(e.target.value))}
+                style={{
+                  width: '100%',
+                  accentColor: 'var(--accent-cyan)',
+                  cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.05)',
+                  height: 4,
+                  borderRadius: 2
+                }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                Maximum number of retrieved chunks to inject into the LLM context.
+              </div>
             </div>
           </div>
         </div>
@@ -672,14 +772,14 @@ export default function ChatPage({ addToast }) {
 
       {/* 3. RIGHT PANEL: Citation / Source Inspector */}
       <aside className="chat-inspector glass" style={{
-        width: 320,
+        width: inspectorWidth,
         height: '100%',
         borderLeft: '1px solid var(--border-subtle)',
         display: 'flex',
         flexDirection: 'column',
         background: 'rgba(9, 9, 11, 0.98)',
         flexShrink: 0,
-        transition: 'transform 0.3s var(--ease-smooth)',
+        transition: 'transform 0.3s var(--ease-smooth), width 0.3s var(--ease-smooth)',
         transform: inspectorOpen ? 'translateX(0)' : 'translateX(100%)',
         position: 'absolute',
         right: 0,
@@ -702,65 +802,140 @@ export default function ChatPage({ addToast }) {
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: 18 }} className="custom-scroll">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <label className="form-label" style={{ fontSize: 10 }}>Source Document</label>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                    {selectedCitation.document_name}
-                  </div>
-                </div>
+            {/* Tabs for PDF vs Metadata */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.1)' }}>
+              <button
+                onClick={() => setInspectorView('pdf')}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: inspectorView === 'pdf' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                  color: inspectorView === 'pdf' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                PDF Document
+              </button>
+              <button
+                onClick={() => setInspectorView('metadata')}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: inspectorView === 'metadata' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                  color: inspectorView === 'metadata' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Metadata Chunk
+              </button>
+            </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {inspectorView === 'pdf' ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#121214', position: 'relative', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', padding: 24, textAlign: 'center' }}>
+                {checkingPdf ? (
+                  <span className="spinner" style={{ width: 24, height: 24, borderTopColor: 'var(--accent-cyan)' }} />
+                ) : !pdfExists ? (
+                  <div style={{ maxWidth: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                    <div style={{ color: 'var(--accent-rose)', fontSize: 36 }}>⚠️</div>
+                    <h4 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      PDF Preview Unavailable
+                    </h4>
+                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                      This document was uploaded before persistent PDF storage was implemented, so the source file is missing from disk.
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+                      To preview citations, please go to the Documents page, delete <strong>{selectedCitation.document_name}</strong>, and re-upload it.
+                    </p>
+                  </div>
+                ) : (
+                  <iframe
+                    src={`/documents/download/${encodeURIComponent(selectedCitation.document_name)}?token=${encodeURIComponent(getToken())}#page=${selectedCitation.page_number}`}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    title="PDF Document Viewer"
+                  />
+                )}
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 18 }} className="custom-scroll">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   <div>
-                    <label className="form-label" style={{ fontSize: 10 }}>Page Number</label>
-                    <div style={{ fontSize: 14, fontWeight: 'bold', color: 'var(--accent-cyan)' }}>
-                      Page {selectedCitation.page_number}
+                    <label className="form-label" style={{ fontSize: 10 }}>Source Document</label>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+                      {selectedCitation.document_name}
                     </div>
                   </div>
-                  <div>
-                    <label className="form-label" style={{ fontSize: 10 }}>Similarity Score</label>
-                    <div style={{ fontSize: 14, fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
-                      {round(selectedCitation.similarity, 4)}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 10 }}>Page Number</label>
+                      <div style={{ fontSize: 14, fontWeight: 'bold', color: 'var(--accent-cyan)' }}>
+                        Page {selectedCitation.page_number}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 10 }}>Similarity Score</label>
+                      <div style={{ fontSize: 14, fontWeight: 'bold', color: 'var(--accent-emerald)' }}>
+                        {round(selectedCitation.similarity, 4)}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="form-label" style={{ fontSize: 10 }}>Ingested Text Chunk</label>
-                  <div style={{
-                    fontSize: 12.5,
-                    lineHeight: 1.6,
-                    color: 'var(--text-secondary)',
-                    background: 'rgba(0,0,0,0.2)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: 14,
-                    whiteSpace: 'pre-wrap',
-                    maxHeight: 280,
-                    overflowY: 'auto'
-                  }} className="custom-scroll">
-                    {highlightCitedText(selectedCitation.text, selectedCitation.highlightWords)}
+                  <div>
+                    <label className="form-label" style={{ fontSize: 10 }}>Ingested Text Chunk</label>
+                    <div style={{
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                      color: 'var(--text-secondary)',
+                      background: 'rgba(0,0,0,0.2)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: 14,
+                      whiteSpace: 'pre-wrap',
+                      maxHeight: 280,
+                      overflowY: 'auto'
+                    }} className="custom-scroll">
+                      {highlightCitedText(selectedCitation.text, selectedCitation.highlightWords)}
+                    </div>
                   </div>
-                </div>
 
-                <div style={{ background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.12)', borderRadius: 8, padding: 12 }}>
-                  <label className="form-label" style={{ fontSize: 9, color: 'var(--accent-cyan)' }}>Metadata Index</label>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Database reference chunk matching search node index. Similarity threshold verified above target 0.35 constraint.
+                  <div style={{ background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.12)', borderRadius: 8, padding: 12 }}>
+                    <label className="form-label" style={{ fontSize: 9, color: 'var(--accent-cyan)' }}>Metadata Index</label>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Database reference chunk matching search node index. Similarity threshold verified above target 0.35 constraint.
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div style={{ padding: 16, borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => addToast('Original PDF preview not available in sandbox environment.', 'info')}
-                style={{ width: '100%' }}
-              >
-                View in Document
-              </button>
+              {inspectorView === 'metadata' ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setInspectorView('pdf')}
+                  style={{ width: '100%' }}
+                >
+                  View in Document
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setInspectorView('metadata')}
+                  style={{ width: '100%' }}
+                >
+                  View Vector Metadata
+                </button>
+              )}
               <button
                 className="btn btn-ghost"
                 onClick={() => setInspectorOpen(false)}

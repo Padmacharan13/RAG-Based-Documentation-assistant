@@ -30,7 +30,7 @@ class RAGPipeline:
         user_id: int,
         question: str,
         k: int = 4,
-        similarity_threshold: float = 0.35
+        similarity_threshold: float = 0.25
     ) -> Dict[str, Any]:
         """
         Executes the full RAG pipeline for a given user question and user_id.

@@ -6,7 +6,8 @@ import os
 import shutil
 import sqlite3
 from typing import Dict, Any
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status, Header
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
 
@@ -70,7 +71,7 @@ class TokenResponse(BaseModel):
 class AskRequest(BaseModel):
     question: str
     k: int = 4
-    similarity_threshold: float = 0.35
+    similarity_threshold: float = 0.25
 
 # Dependency to get current user from JWT token
 def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
@@ -139,13 +140,12 @@ def process_document_task(user_id: int, document_id: int, file_path: str, filena
     except Exception as e:
         print(f"Error processing document {filename} for user {user_id}: {e}")
         update_document_status(DB_PATH, document_id, "FAILED", error_message=str(e))
-    finally:
-        # Cleanup temporary uploaded file
+        # Cleanup file on ingestion failure
         if os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except Exception as cleanup_err:
-                print(f"Failed to delete temp file {file_path}: {cleanup_err}")
+                print(f"Failed to delete temp file {file_path} on ingestion failure: {cleanup_err}")
 
 @app.on_event("startup")
 def startup_event():
@@ -396,6 +396,64 @@ def rebuild_user_vector_store(user_id: int):
     except Exception as e:
         print(f"Error rebuilding vector store for user {user_id}: {e}")
 
+def get_current_user_from_token(token: str) -> dict:
+    try:
+        payload = decode_access_token(token)
+        user_id_str = payload.get("sub")
+        username = payload.get("username")
+        if not user_id_str or not username:
+            raise ValueError("Invalid token payload")
+        return {"user_id": int(user_id_str), "username": username}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired token: {str(e)}"
+        )
+
+@app.get("/documents/download/{filename}")
+def download_document_by_name(
+    filename: str,
+    token: str = None,
+    authorization: str = Header(None)
+):
+    # Extract token from authorization header or query parameter
+    actual_token = None
+    if authorization and authorization.startswith("Bearer "):
+        actual_token = authorization.split(" ")[1]
+    elif token:
+        actual_token = token
+        
+    if not actual_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization token required"
+        )
+        
+    current_user = get_current_user_from_token(actual_token)
+    user_id = current_user["user_id"]
+    
+    # Verify the document belongs to this user
+    conn = get_db_connection(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE user_id = ? AND filename = ?", (user_id, filename))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or access denied"
+        )
+        
+    file_path = os.path.join(UPLOADS_DIR, str(user_id), filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="PDF file not found on disk"
+        )
+        
+    return FileResponse(file_path, media_type="application/pdf")
+
 # Document management endpoints
 @app.get("/documents")
 def list_documents(current_user: dict = Depends(get_current_user)):
@@ -458,6 +516,14 @@ def delete_document(document_id: int, current_user: dict = Depends(get_current_u
         conn.commit()
         conn.close()
         
+        # Delete persistent PDF file from disk
+        file_path = os.path.join(UPLOADS_DIR, str(user_id), filename)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as file_err:
+                print(f"Error deleting persistent PDF file {file_path}: {file_err}")
+                
         rebuild_user_vector_store(user_id)
         return {"message": f"Document '{filename}' deleted successfully"}
     except HTTPException:

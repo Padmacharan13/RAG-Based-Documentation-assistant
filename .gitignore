@@ -20,3 +20,4 @@ test_rag_pipeline.py
 rag_database.db
 
 frontend/.oxlintrc.json
+test_product_features.py

@@ -1,3 +1,13 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables (useful for standalone scripts/tests)
+load_dotenv()
+
+# Suppress Hugging Face Hub warning if token is not set
+if not os.environ.get("HF_TOKEN"):
+    os.environ["HF_HUB_VERBOSITY"] = "error"
+
 from typing import List, Dict, Any
 from transformers import AutoTokenizer
 
